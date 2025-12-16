@@ -9,6 +9,13 @@ interface Agent {
   status: 'idle' | 'active' | 'error'
 }
 
+interface ArbiterConfig {
+  description: string
+  model: string
+  systemPrompt: string
+  status: 'idle' | 'active' | 'error'
+}
+
 interface Message {
   id: string
   role: 'user' | 'arbiter'
@@ -25,6 +32,12 @@ interface SubAgent {
 }
 
 function App() {
+  const [arbiterConfig, setArbiterConfig] = useState<ArbiterConfig>({
+    description: 'The main coordinator',
+    model: 'claude-3-5-sonnet-20241022',
+    systemPrompt: 'You are Arbiter, an intelligent agent coordinator. Your role is to manage and orchestrate multiple AI agents to work together on complex tasks.',
+    status: 'active'
+  })
   const [agents, setAgents] = useState<Agent[]>([])
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -56,6 +69,7 @@ function App() {
     }
   })
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -64,6 +78,11 @@ function App() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  useEffect(() => {
+    // Always keep input focused
+    inputRef.current?.focus()
+  }, [messages, agentCreationState])
 
   const addMessage = (role: 'user' | 'arbiter', content: string, options?: string[]) => {
     const newMessage: Message = {
@@ -153,6 +172,23 @@ function App() {
   const handleCommand = (command: string) => {
     const trimmedCommand = command.trim()
 
+    if (trimmedCommand.startsWith('/arbiter')) {
+      const args = trimmedCommand.slice(8).trim()
+      const subcommand = args.split(' ')[0]
+
+      switch (subcommand) {
+        case 'edit':
+          addMessage('arbiter', 'Editing Arbiter configuration is not yet implemented. This would allow you to modify my settings.')
+          break
+        case 'status':
+          addMessage('arbiter', `Status: ${arbiterConfig.status}\nModel: ${arbiterConfig.model}\nDescription: ${arbiterConfig.description}`)
+          break
+        default:
+          addMessage('arbiter', 'Available Arbiter commands:\n- `/arbiter edit` - Edit Arbiter configuration\n- `/arbiter status` - Show Arbiter status')
+      }
+      return true
+    }
+
     if (trimmedCommand.startsWith('/agents')) {
       const args = trimmedCommand.slice(7).trim()
       const parts = args.split(' ')
@@ -216,11 +252,11 @@ function App() {
             addMessage('arbiter', 'Please specify an agent name: `/agents delete <name>`')
           } else {
             const agentToDelete = agents.find(a => a.name === agentName)
-            if (agentToDelete) {
+            if (!agentToDelete) {
+              addMessage('arbiter', `Agent "${agentName}" not found.`)
+            } else {
               setAgents(agents.filter(a => a.name !== agentName))
               addMessage('arbiter', `Agent "${agentName}" has been deleted.`)
-            } else {
-              addMessage('arbiter', `Agent "${agentName}" not found.`)
             }
           }
           break
@@ -239,21 +275,34 @@ function App() {
     addMessage('user', userInput)
     setInputValue('')
 
+    // Check if it's a command first (commands override any active flow)
+    if (userInput.startsWith('/')) {
+      // Reset any active flows
+      if (agentCreationState.active) {
+        setAgentCreationState({
+          active: false,
+          step: null,
+          data: { name: '', description: '', model: '', systemPrompt: '' }
+        })
+      }
+
+      const commandHandled = handleCommand(userInput)
+      if (!commandHandled) {
+        addMessage('arbiter', 'Unknown command. Try `/agents` or `/arbiter` for available commands.')
+      }
+      return
+    }
+
     // Check if we're in agent creation flow
     if (agentCreationState.active) {
       handleAgentCreationResponse(userInput)
       return
     }
 
-    // Otherwise, try to handle as command
-    const commandHandled = handleCommand(userInput)
-
-    if (!commandHandled) {
-      // Simulate Arbiter response for non-command messages
-      setTimeout(() => {
-        addMessage('arbiter', 'I received your message. I would coordinate agents to help with this task.')
-      }, 500)
-    }
+    // Regular message
+    setTimeout(() => {
+      addMessage('arbiter', 'I received your message. I would coordinate agents to help with this task.')
+    }, 500)
   }
 
   const handleCreateAgent = () => {
@@ -268,16 +317,42 @@ function App() {
     }, 300)
   }
 
+  const handleArbiterClick = () => {
+    const command = '/arbiter edit'
+    addMessage('user', command)
+    addMessage('arbiter', 'Editing Arbiter configuration is not yet implemented. This would allow you to modify my settings.')
+  }
+
+  const handleAgentClick = (agentName: string) => {
+    const command = `/agents edit ${agentName}`
+    addMessage('user', command)
+    addMessage('arbiter', `Editing "${agentName}" is not yet implemented. This would allow you to modify the agent's configuration.`)
+  }
+
   return (
     <div className="flex h-screen bg-gray-900 text-white">
       {/* Left Pane - Agents */}
       <div className="w-64 bg-gray-800 border-r border-gray-700 flex flex-col">
-        <div className="p-4 border-b border-gray-700">
-          <h1 className="text-2xl font-bold text-blue-400">Arbiter</h1>
-          <p className="text-sm text-gray-400 mt-1">LLM Agent Coordinator</p>
-        </div>
 
         <div className="flex-1 overflow-y-auto p-4">
+          {/* Arbiter - Coordinator */}
+          <div className="mb-4">
+            <div
+              onClick={handleArbiterClick}
+              className="p-3 bg-gradient-to-r from-blue-900 to-blue-800 border border-blue-700 rounded-lg cursor-pointer transition-colors hover:from-blue-800 hover:to-blue-700"
+            >
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${
+                  arbiterConfig.status === 'active' ? 'bg-green-400' :
+                  arbiterConfig.status === 'error' ? 'bg-red-400' :
+                  'bg-gray-400'
+                }`}></div>
+                <span className="text-sm font-semibold">Arbiter</span>
+              </div>
+            </div>
+          </div>
+
+          {/* User Agents */}
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-300">Agents</h2>
             <button
@@ -295,6 +370,7 @@ function App() {
               agents.map((agent) => (
                 <div
                   key={agent.id}
+                  onClick={() => handleAgentClick(agent.name)}
                   className="p-3 bg-gray-700 hover:bg-gray-650 rounded-lg cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-2">
@@ -310,19 +386,12 @@ function App() {
             )}
           </div>
         </div>
-
-        <div className="p-4 border-t border-gray-700">
-          <div className="text-xs text-gray-500">
-            <div>Electron + React + TypeScript</div>
-            <div className="mt-1">Press Cmd+Q to quit</div>
-          </div>
-        </div>
       </div>
 
       {/* Center Pane - Chat with Arbiter */}
       <div className="flex-1 flex flex-col bg-gray-900">
         <div className="h-16 bg-gray-800 border-b border-gray-700 flex items-center px-6">
-          <h2 className="text-lg font-semibold">Chat with Arbiter</h2>
+          <h2 className="text-lg font-semibold">Arbiter</h2>
         </div>
 
         {/* Messages */}
@@ -373,12 +442,15 @@ function App() {
         <div className="border-t border-gray-700 p-4 bg-gray-800">
           <div className="flex gap-2">
             <input
+              ref={inputRef}
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+              onBlur={() => inputRef.current?.focus()}
               placeholder="Type a message to Arbiter..."
               className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              autoFocus
             />
             <button
               onClick={handleSendMessage}
