@@ -38,6 +38,14 @@ interface Tool {
   status: 'available' | 'busy' | 'offline'
 }
 
+interface ArbiterLogEntry {
+  id: string
+  title: string
+  details: string
+  status: 'info' | 'action' | 'warning'
+  timestamp: Date
+}
+
 function App() {
   const [arbiterConfig, setArbiterConfig] = useState<ArbiterConfig>({
     description: 'The main coordinator',
@@ -46,20 +54,8 @@ function App() {
     status: 'active'
   })
   const [agents, setAgents] = useState<Agent[]>([])
-  const [tools] = useState<Tool[]>([
-    {
-      id: 'tool-browser',
-      name: 'Browser',
-      description: 'Search the web and retrieve up-to-date information',
-      status: 'available'
-    },
-    {
-      id: 'tool-code-interpreter',
-      name: 'Code Interpreter',
-      description: 'Execute scripts for analysis and automation',
-      status: 'offline'
-    }
-  ])
+  const [tools] = useState<Tool[]>([])
+  const [arbiterLog] = useState<ArbiterLogEntry[]>([])
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -351,6 +347,13 @@ function App() {
     addMessage('user', command)
     addMessage('arbiter', `Editing "${agentName}" is not yet implemented. This would allow you to modify the agent's configuration.`)
   }
+
+  const handleCreateTool = () => {
+    const command = '/tools new'
+    addMessage('user', command)
+    addMessage('arbiter', 'Connecting a new tool is not yet implemented. This would walk you through adding capabilities.')
+  }
+
   const handleToolClick = (toolName: string) => {
     const command = `/tools view ${toolName}`
     addMessage('user', command)
@@ -401,7 +404,7 @@ function App() {
             {isAgentsExpanded && (
               <div className="space-y-2">
                 {agents.length === 0 ? (
-                  <p className="text-sm text-gray-500 italic">No agents yet</p>
+                  <p className="text-sm text-gray-500 italic">No agents defined yet</p>
                 ) : (
                   agents.map((agent) => (
                     <div
@@ -433,6 +436,12 @@ function App() {
                 className="text-sm font-semibold text-gray-300 hover:text-white transition-colors focus:outline-none"
               >
                 Tools
+              </button>
+              <button
+                onClick={handleCreateTool}
+                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs transition-colors"
+              >
+                + New
               </button>
             </div>
 
@@ -538,47 +547,82 @@ function App() {
         </div>
       </div>
 
-      {/* Right Pane - Running Subagents */}
+      {/* Right Pane - Logs and Subagents */}
       <div className="w-80 bg-gray-800 border-l border-gray-700 flex flex-col">
-        <div className="p-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold">Running Subagents</h2>
-          <p className="text-xs text-gray-400 mt-1">Active tasks and workflows</p>
-        </div>
+        <div className="flex flex-col flex-1 border-b border-gray-700">
+          <div className="p-4 border-b border-gray-700">
+            <h2 className="text-lg font-semibold">Arbiter&apos;s Log</h2>
+          </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          {subAgents.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="text-gray-500 text-sm">No active subagents</div>
-              <div className="text-gray-600 text-xs mt-2">
-                Subagents will appear here when Arbiter delegates tasks
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {subAgents.map((subAgent) => (
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {arbiterLog.length === 0 ? (
+              <div className="text-center text-xs text-gray-500">No log entries yet</div>
+            ) : (
+              arbiterLog.map(entry => (
                 <div
-                  key={subAgent.id}
+                  key={entry.id}
                   className="bg-gray-700 rounded-lg p-3 border border-gray-600"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold">{subAgent.name}</span>
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      subAgent.status === 'running' ? 'bg-blue-600' :
-                      subAgent.status === 'completed' ? 'bg-green-600' :
-                      'bg-red-600'
-                    }`}>
-                      {subAgent.status}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${
+                        entry.status === 'info' ? 'bg-blue-400' :
+                        entry.status === 'action' ? 'bg-green-400' :
+                        'bg-yellow-400'
+                      }`}></div>
+                      <span className="text-sm font-semibold">{entry.title}</span>
+                    </div>
+                    <span className="text-[10px] text-gray-400">
+                      {entry.timestamp.toLocaleTimeString()}
                     </span>
                   </div>
-                  {subAgent.progress && (
-                    <div className="text-xs text-gray-400 mt-1">
-                      {subAgent.progress}
-                    </div>
-                  )}
+                  <p className="text-xs text-gray-400 mt-1">{entry.details}</p>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col flex-1">
+          <div className="p-4 border-b border-gray-700">
+            <h2 className="text-lg font-semibold">Running Subagents</h2>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {subAgents.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-gray-500 text-sm">No active subagents</div>
+                <div className="text-gray-600 text-xs mt-2">
+                  Subagents will appear here when Arbiter delegates tasks
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {subAgents.map((subAgent) => (
+                  <div
+                    key={subAgent.id}
+                    className="bg-gray-700 rounded-lg p-3 border border-gray-600"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold">{subAgent.name}</span>
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        subAgent.status === 'running' ? 'bg-blue-600' :
+                        subAgent.status === 'completed' ? 'bg-green-600' :
+                        'bg-red-600'
+                      }`}>
+                        {subAgent.status}
+                      </span>
+                    </div>
+                    {subAgent.progress && (
+                      <div className="text-xs text-gray-400 mt-1">
+                        {subAgent.progress}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
