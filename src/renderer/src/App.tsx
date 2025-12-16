@@ -31,6 +31,13 @@ interface SubAgent {
   progress?: string
 }
 
+interface Tool {
+  id: string
+  name: string
+  description?: string
+  status: 'available' | 'busy' | 'offline'
+}
+
 function App() {
   const [arbiterConfig, setArbiterConfig] = useState<ArbiterConfig>({
     description: 'The main coordinator',
@@ -39,6 +46,20 @@ function App() {
     status: 'active'
   })
   const [agents, setAgents] = useState<Agent[]>([])
+  const [tools] = useState<Tool[]>([
+    {
+      id: 'tool-browser',
+      name: 'Browser',
+      description: 'Search the web and retrieve up-to-date information',
+      status: 'available'
+    },
+    {
+      id: 'tool-code-interpreter',
+      name: 'Code Interpreter',
+      description: 'Execute scripts for analysis and automation',
+      status: 'offline'
+    }
+  ])
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -70,6 +91,8 @@ function App() {
   })
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [isAgentsExpanded, setIsAgentsExpanded] = useState(true)
+  const [isToolsExpanded, setIsToolsExpanded] = useState(true)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -328,6 +351,11 @@ function App() {
     addMessage('user', command)
     addMessage('arbiter', `Editing "${agentName}" is not yet implemented. This would allow you to modify the agent's configuration.`)
   }
+  const handleToolClick = (toolName: string) => {
+    const command = `/tools view ${toolName}`
+    addMessage('user', command)
+    addMessage('arbiter', `Viewing "${toolName}" is not yet implemented. This would show the tool's capabilities and configuration.`)
+  }
 
   return (
     <div className="flex h-screen bg-gray-900 text-white">
@@ -353,36 +381,84 @@ function App() {
           </div>
 
           {/* User Agents */}
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-300">Agents</h2>
-            <button
-              onClick={handleCreateAgent}
-              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs transition-colors"
-            >
-              + New
-            </button>
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <button
+                type="button"
+                onClick={() => setIsAgentsExpanded(prev => !prev)}
+                className="text-sm font-semibold text-gray-300 hover:text-white transition-colors focus:outline-none"
+              >
+                Agents
+              </button>
+              <button
+                onClick={handleCreateAgent}
+                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs transition-colors"
+              >
+                + New
+              </button>
+            </div>
+
+            {isAgentsExpanded && (
+              <div className="space-y-2">
+                {agents.length === 0 ? (
+                  <p className="text-sm text-gray-500 italic">No agents yet</p>
+                ) : (
+                  agents.map((agent) => (
+                    <div
+                      key={agent.id}
+                      onClick={() => handleAgentClick(agent.name)}
+                      className="p-3 bg-gray-700 hover:bg-gray-650 rounded-lg cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          agent.status === 'active' ? 'bg-green-500' :
+                          agent.status === 'error' ? 'bg-red-500' :
+                          'bg-gray-500'
+                        }`}></div>
+                        <span className="text-sm">{agent.name}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="space-y-2">
-            {agents.length === 0 ? (
-              <p className="text-sm text-gray-500 italic">No agents yet</p>
-            ) : (
-              agents.map((agent) => (
-                <div
-                  key={agent.id}
-                  onClick={() => handleAgentClick(agent.name)}
-                  className="p-3 bg-gray-700 hover:bg-gray-650 rounded-lg cursor-pointer transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${
-                      agent.status === 'active' ? 'bg-green-500' :
-                      agent.status === 'error' ? 'bg-red-500' :
-                      'bg-gray-500'
-                    }`}></div>
-                    <span className="text-sm">{agent.name}</span>
-                  </div>
-                </div>
-              ))
+          {/* Tools */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <button
+                type="button"
+                onClick={() => setIsToolsExpanded(prev => !prev)}
+                className="text-sm font-semibold text-gray-300 hover:text-white transition-colors focus:outline-none"
+              >
+                Tools
+              </button>
+            </div>
+
+            {isToolsExpanded && (
+              <div className="space-y-2">
+                {tools.length === 0 ? (
+                  <p className="text-sm text-gray-500 italic">No tools connected yet</p>
+                ) : (
+                  tools.map((tool) => (
+                    <div
+                      key={tool.id}
+                      onClick={() => handleToolClick(tool.name)}
+                      className="p-3 bg-gray-700 border border-gray-600 rounded-lg cursor-pointer hover:bg-gray-650 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          tool.status === 'available' ? 'bg-green-500' :
+                          tool.status === 'busy' ? 'bg-yellow-500' :
+                          'bg-gray-500'
+                        }`}></div>
+                        <span className="text-sm">{tool.name}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             )}
           </div>
         </div>
