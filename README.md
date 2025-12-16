@@ -1,6 +1,9 @@
 # Arbiter
 
-A cross-platform desktop application for coordinating multiple LLM agents, built with Electron, React, and TypeScript.
+Application for coordinating multiple LLM agents, built with Electron, React, and TypeScript.
+
+> [!WARNING]  
+> This project is entirely vibe-coded, and should not be relied upon in any capacity.
 
 ## Features
 
