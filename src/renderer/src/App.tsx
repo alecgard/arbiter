@@ -22,6 +22,7 @@ interface Message {
   content: string
   timestamp: Date
   options?: string[]
+  form?: 'agentCreation'
 }
 
 interface SubAgent {
@@ -46,6 +47,38 @@ interface ArbiterLogEntry {
   timestamp: Date
 }
 
+type AgentFormMode = 'create' | 'edit'
+
+interface AgentFormState {
+  active: boolean
+  mode: AgentFormMode
+  targetId?: string
+  data: {
+    name: string
+    description: string
+    model: string
+    systemPrompt: string
+  }
+  error: string
+}
+
+const agentModelOptions = [
+  { label: 'Claude 3.5 Sonnet', value: 'claude-3-5-sonnet-20241022' },
+  { label: 'Claude 3 Opus', value: 'claude-3-opus-20240229' },
+  { label: 'Claude 3 Haiku', value: 'claude-3-haiku-20240307' },
+  { label: 'GPT-4', value: 'gpt-4' },
+  { label: 'GPT-3.5 Turbo', value: 'gpt-3.5-turbo' }
+]
+
+type AgentFormField = 'name' | 'description' | 'model' | 'systemPrompt'
+
+const createEmptyAgentData = () => ({
+  name: '',
+  description: '',
+  model: agentModelOptions[0].value,
+  systemPrompt: ''
+})
+
 function App() {
   const [arbiterConfig, setArbiterConfig] = useState<ArbiterConfig>({
     description: 'The main coordinator',
@@ -66,25 +99,13 @@ function App() {
   ])
   const [inputValue, setInputValue] = useState('')
   const [subAgents, setSubAgents] = useState<SubAgent[]>([])
-  const [agentCreationState, setAgentCreationState] = useState<{
-    active: boolean
-    step: 'name' | 'description' | 'model' | 'systemPrompt' | null
-    data: {
-      name: string
-      description: string
-      model: string
-      systemPrompt: string
-    }
-  }>({
+  const [agentCreationState, setAgentCreationState] = useState<AgentFormState>(() => ({
     active: false,
-    step: null,
-    data: {
-      name: '',
-      description: '',
-      model: '',
-      systemPrompt: ''
-    }
-  })
+    mode: 'create',
+    targetId: undefined,
+    data: createEmptyAgentData(),
+    error: ''
+  }))
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [isAgentsExpanded, setIsAgentsExpanded] = useState(true)
@@ -99,17 +120,21 @@ function App() {
   }, [messages])
 
   useEffect(() => {
-    // Always keep input focused
-    inputRef.current?.focus()
+    if (!agentCreationState.active) {
+      inputRef.current?.focus()
+    } else {
+      inputRef.current?.blur()
+    }
   }, [messages, agentCreationState])
 
-  const addMessage = (role: 'user' | 'arbiter', content: string, options?: string[]) => {
+  const addMessage = (role: 'user' | 'arbiter', content: string, options?: string[], form?: Message['form']) => {
     const newMessage: Message = {
       id: Date.now().toString(),
       role,
       content,
       timestamp: new Date(),
-      options
+      options,
+      form
     }
     setMessages(prev => [...prev, newMessage])
   }
@@ -118,74 +143,111 @@ function App() {
     // Add user message
     addMessage('user', option)
 
-    // Process the response
-    if (agentCreationState.active) {
-      handleAgentCreationResponse(option)
-    }
   }
 
-  const handleAgentCreationResponse = (response: string) => {
-    const state = agentCreationState
+  const resetAgentCreationState = () => {
+    setAgentCreationState({
+      active: false,
+      mode: 'create',
+      targetId: undefined,
+      data: createEmptyAgentData(),
+      error: ''
+    })
+  }
 
-    switch (state.step) {
-      case 'name':
-        setAgentCreationState({
-          ...state,
-          step: 'description',
-          data: { ...state.data, name: response }
-        })
-        addMessage('arbiter', 'Great! Now, provide a brief description for this agent (or type "skip" to skip):')
-        break
-
-      case 'description':
-        setAgentCreationState({
-          ...state,
-          step: 'model',
-          data: { ...state.data, description: response === 'skip' ? '' : response }
-        })
-        addMessage('arbiter', 'Which model should this agent use?', [
-          'Claude 3.5 Sonnet',
-          'Claude 3 Opus',
-          'Claude 3 Haiku',
-          'GPT-4',
-          'GPT-3.5 Turbo'
-        ])
-        break
-
-      case 'model':
-        const modelMap: { [key: string]: string } = {
-          'Claude 3.5 Sonnet': 'claude-3-5-sonnet-20241022',
-          'Claude 3 Opus': 'claude-3-opus-20240229',
-          'Claude 3 Haiku': 'claude-3-haiku-20240307',
-          'GPT-4': 'gpt-4',
-          'GPT-3.5 Turbo': 'gpt-3.5-turbo'
+  const openAgentForm = (mode: AgentFormMode, agent?: Agent) => {
+    const initialData = agent
+      ? {
+          name: agent.name,
+          description: agent.description || '',
+          model: agent.model || agentModelOptions[0].value,
+          systemPrompt: agent.systemPrompt || ''
         }
-        setAgentCreationState({
-          ...state,
-          step: 'systemPrompt',
-          data: { ...state.data, model: modelMap[response] || response }
-        })
-        addMessage('arbiter', 'Finally, provide a system prompt that defines the agent\'s role and behavior (or type "skip" to skip):')
-        break
+      : createEmptyAgentData()
 
-      case 'systemPrompt':
-        const newAgent: Agent = {
-          id: Date.now().toString(),
-          name: state.data.name,
-          description: state.data.description,
-          model: state.data.model,
-          systemPrompt: response === 'skip' ? '' : response,
-          status: 'idle'
-        }
-        setAgents([...agents, newAgent])
-        setAgentCreationState({
-          active: false,
-          step: null,
-          data: { name: '', description: '', model: '', systemPrompt: '' }
-        })
-        addMessage('arbiter', `Perfect! Agent "${newAgent.name}" has been created successfully. You can see it in the left panel.`)
-        break
+    setAgentCreationState({
+      active: true,
+      mode,
+      targetId: agent?.id,
+      data: initialData,
+      error: ''
+    })
+
+    const intro =
+      mode === 'create'
+        ? 'Provide the agent details below, and I\'ll set everything up.'
+        : `Update the details for "${agent?.name}". Adjust anything you like below.`
+
+    addMessage('arbiter', intro, undefined, 'agentCreation')
+  }
+
+  const updateAgentFormField = (field: AgentFormField, value: string) => {
+    setAgentCreationState(prev => ({
+      ...prev,
+      data: {
+        ...prev.data,
+        [field]: value
+      },
+      error: field === 'name' && value.trim().length > 0 ? '' : prev.error
+    }))
+  }
+
+  const handleAgentFormSubmit = () => {
+    const trimmedName = agentCreationState.data.name.trim()
+    if (!trimmedName) {
+      setAgentCreationState(prev => ({
+        ...prev,
+        error: 'Agent name is required.'
+      }))
+      return
     }
+
+    const trimmedDescription = agentCreationState.data.description.trim()
+    const trimmedSystemPrompt = agentCreationState.data.systemPrompt.trim()
+
+    if (agentCreationState.mode === 'edit') {
+      if (!agentCreationState.targetId) {
+        addMessage('arbiter', 'I lost track of which agent you were editing. Please run `/agents edit <name>` again.')
+        resetAgentCreationState()
+        return
+      }
+
+      setAgents(prev =>
+        prev.map(agent =>
+          agent.id === agentCreationState.targetId
+            ? {
+                ...agent,
+                name: trimmedName,
+                description: trimmedDescription,
+                model: agentCreationState.data.model,
+                systemPrompt: trimmedSystemPrompt
+              }
+            : agent
+        )
+      )
+      const updatedName = trimmedName
+      resetAgentCreationState()
+      addMessage('arbiter', `Done! Agent "${updatedName}" has been updated.`)
+      return
+    }
+
+    const newAgent: Agent = {
+      id: Date.now().toString(),
+      name: trimmedName,
+      description: trimmedDescription,
+      model: agentCreationState.data.model,
+      systemPrompt: trimmedSystemPrompt,
+      status: 'idle'
+    }
+
+    setAgents(prev => [...prev, newAgent])
+    resetAgentCreationState()
+    addMessage('arbiter', `Perfect! Agent "${newAgent.name}" has been created successfully. You can see it in the left panel.`)
+  }
+
+  const handleCancelAgentCreation = () => {
+    resetAgentCreationState()
+    addMessage('arbiter', 'Okay, I\'ve closed the agent creation form.')
   }
 
   const handleCommand = (command: string) => {
@@ -248,14 +310,37 @@ function App() {
               addMessage('arbiter', 'Invalid format. Use: `/agents new <name> --description "..." --model "..." --prompt "..."`')
             }
           } else {
-            // Start interactive flow
-            setAgentCreationState({
-              active: true,
-              step: 'name',
-              data: { name: '', description: '', model: '', systemPrompt: '' }
-            })
-            addMessage('arbiter', 'Let\'s create a new agent! What would you like to name it?')
+            openAgentForm('create')
           }
+          break
+        case 'view':
+          const viewTarget = parts.slice(1).join(' ').trim()
+          if (!viewTarget) {
+            addMessage('arbiter', 'Please specify which agent to view: `/agents view <name>`')
+            break
+          }
+          const agentToView = agents.find(a => a.name.toLowerCase() === viewTarget.toLowerCase())
+          if (!agentToView) {
+            addMessage('arbiter', `I couldn&apos;t find an agent named "${viewTarget}".`)
+            break
+          }
+          addMessage(
+            'arbiter',
+            `Agent: ${agentToView.name}\nStatus: ${agentToView.status}\nModel: ${agentToView.model || 'not set'}\nDescription: ${agentToView.description || 'not provided'}\nSystem Prompt:\n${agentToView.systemPrompt || '(empty)'}`
+          )
+          break
+        case 'edit':
+          const editTarget = parts.slice(1).join(' ').trim()
+          if (!editTarget) {
+            addMessage('arbiter', 'Please specify which agent to edit: `/agents edit <name>`')
+            break
+          }
+          const agentToEdit = agents.find(a => a.name.toLowerCase() === editTarget.toLowerCase())
+          if (!agentToEdit) {
+            addMessage('arbiter', `I couldn&apos;t find an agent named "${editTarget}".`)
+            break
+          }
+          openAgentForm('edit', agentToEdit)
           break
         case 'list':
           if (agents.length === 0) {
@@ -298,23 +383,13 @@ function App() {
     if (userInput.startsWith('/')) {
       // Reset any active flows
       if (agentCreationState.active) {
-        setAgentCreationState({
-          active: false,
-          step: null,
-          data: { name: '', description: '', model: '', systemPrompt: '' }
-        })
+        resetAgentCreationState()
       }
 
       const commandHandled = handleCommand(userInput)
       if (!commandHandled) {
         addMessage('arbiter', 'Unknown command. Try `/agents` or `/arbiter` for available commands.')
       }
-      return
-    }
-
-    // Check if we're in agent creation flow
-    if (agentCreationState.active) {
-      handleAgentCreationResponse(userInput)
       return
     }
 
@@ -326,14 +401,7 @@ function App() {
 
   const handleCreateAgent = () => {
     addMessage('user', '/agents new')
-    setAgentCreationState({
-      active: true,
-      step: 'name',
-      data: { name: '', description: '', model: '', systemPrompt: '' }
-    })
-    setTimeout(() => {
-      addMessage('arbiter', 'Let\'s create a new agent! What would you like to name it?')
-    }, 300)
+    openAgentForm('create')
   }
 
   const handleArbiterClick = () => {
@@ -343,9 +411,15 @@ function App() {
   }
 
   const handleAgentClick = (agentName: string) => {
+    const command = `/agents view ${agentName}`
+    addMessage('user', command)
+    handleCommand(command)
+  }
+
+  const handleAgentEdit = (agentName: string) => {
     const command = `/agents edit ${agentName}`
     addMessage('user', command)
-    addMessage('arbiter', `Editing "${agentName}" is not yet implemented. This would allow you to modify the agent's configuration.`)
+    handleCommand(command)
   }
 
   const handleCreateTool = () => {
@@ -410,9 +484,20 @@ function App() {
                     <div
                       key={agent.id}
                       onClick={() => handleAgentClick(agent.name)}
-                      className="p-3 bg-gray-700 hover:bg-gray-650 rounded-lg cursor-pointer transition-colors"
+                      className="group relative p-3 bg-gray-700 hover:bg-gray-650 rounded-lg cursor-pointer transition-colors"
                     >
-                      <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleAgentEdit(agent.name)
+                        }}
+                        aria-label={`Edit ${agent.name}`}
+                        className="hidden group-hover:flex items-center justify-center absolute top-2 right-2 w-6 h-6 rounded bg-gray-900/70 border border-gray-600 text-xs"
+                      >
+                        &#9881;
+                      </button>
+                      <div className="flex items-center gap-2 pr-6">
                         <div className={`w-2 h-2 rounded-full ${
                           agent.status === 'active' ? 'bg-green-500' :
                           agent.status === 'error' ? 'bg-red-500' :
@@ -513,6 +598,84 @@ function App() {
                     </div>
                   )}
 
+                  {message.form === 'agentCreation' && agentCreationState.active && (
+                    <div className="mt-4 space-y-3">
+                      <div>
+                        <label className="text-xs uppercase tracking-wide text-gray-400">Name</label>
+                        <input
+                          type="text"
+                          value={agentCreationState.data.name}
+                          onChange={(e) => updateAgentFormField('name', e.target.value)}
+                          className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="e.g. Research Analyst"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs uppercase tracking-wide text-gray-400">Description</label>
+                        <textarea
+                          value={agentCreationState.data.description}
+                          onChange={(e) => updateAgentFormField('description', e.target.value)}
+                          className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="What role will this agent play?"
+                          rows={2}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs uppercase tracking-wide text-gray-400">Model</label>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {agentModelOptions.map(option => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => updateAgentFormField('model', option.value)}
+                              className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+                                agentCreationState.data.model === option.value
+                                  ? 'bg-blue-600 border-blue-500'
+                                  : 'bg-gray-900 border-gray-700 hover:border-gray-500'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs uppercase tracking-wide text-gray-400">System Prompt</label>
+                        <textarea
+                          value={agentCreationState.data.systemPrompt}
+                          onChange={(e) => updateAgentFormField('systemPrompt', e.target.value)}
+                          className="mt-1 w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Define the agent's behavior..."
+                          rows={3}
+                        />
+                      </div>
+
+                      {agentCreationState.error && (
+                        <div className="text-xs text-red-400">{agentCreationState.error}</div>
+                      )}
+
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCancelAgentCreation}
+                          className="px-3 py-1.5 text-xs rounded border border-gray-600 text-gray-300 hover:bg-gray-700"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAgentFormSubmit}
+                          className="px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-700"
+                        >
+                          Create Agent
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="text-xs mt-1 opacity-60">
                     {message.timestamp.toLocaleTimeString()}
                   </div>
@@ -532,10 +695,14 @@ function App() {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-              onBlur={() => inputRef.current?.focus()}
+              onBlur={() => {
+                if (!agentCreationState.active) {
+                  inputRef.current?.focus()
+                }
+              }}
               placeholder="Type a message to Arbiter..."
               className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              autoFocus
+              autoFocus={!agentCreationState.active}
             />
             <button
               onClick={handleSendMessage}
